@@ -1,7 +1,9 @@
 package minicert
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"golang.org/x/crypto/ed25519"
 	"time"
 )
@@ -77,7 +79,7 @@ func unmarshalAttributes(data []byte) ([]Attribute, error) {
 		if start+read > end {
 			return nil, fmt.Errorf("minicert: Data too short for attribute header")
 		}
-		attrType := (int(data[start+0]) << 8) + int(data[start+1])
+		attrType := (uint16(data[start+0]) << 8) + uint16(data[start+1])
 		attrLen := (int(data[start+2]) << 8) + int(data[start+3])
 		start += 4
 
@@ -94,6 +96,52 @@ func unmarshalAttributes(data []byte) ([]Attribute, error) {
 	return attrs, nil
 }
 
+func marshalHeader(version uint16, notBefore, notAfter time.Time) []byte {
+	out := make([]byte, headerSize)
+	binary.BigEndian.PutUint16(out[:2], version)
+	binary.BigEndian.PutUint64(out[2:10], uint64(notBefore.Unix()))
+	binary.BigEndian.PutUint64(out[10:], uint64(notAfter.Unix()))
+	return out
+}
+
+func unmarshalHeader(data []byte) (uint16, time.Time, time.Time) {
+	version := binary.BigEndian.Uint16(data[:2])
+	notBefore := int64(binary.BigEndian.Uint64(data[2:10]))
+	notAfter := int64(binary.BigEndian.Uint64(data[10:]))
+	return version, time.Unix(notBefore, 0), time.Unix(notAfter, 0)
+}
+
+func marshalFooter(key, issuer ed25519.PublicKey, sig []byte) ([]byte, error) {
+	if len(key) != keySize {
+		return nil, fmt.Errorf("minicert: Incorrect size for key [%d] != [%d]", len(key), keySize)
+	}
+
+	if len(issuer) != keySize {
+		return nil, fmt.Errorf("minicert: Incorrect size for issuer [%d] != [%d]", len(issuer), keySize)
+	}
+
+	if len(sig) != sigSize {
+		return nil, fmt.Errorf("minicert: Incorrect size for signature [%d] != [%d]", len(sig), sigSize)
+	}
+
+	out := make([]byte, keySize+keySize+sigSize)
+	copy(out[:keySize], key)
+	copy(out[keySize:keySize+keySize], issuer)
+	copy(out[keySize+keySize:], sig)
+	return out, nil
+}
+
+func unmarshalFooter(data []byte) (ed25519.PublicKey, ed25519.PublicKey, []byte) {
+	key := make([]byte, keySize)
+	issuer := make([]byte, keySize)
+	sig := make([]byte, sigSize)
+
+	copy(key, data[:keySize])
+	copy(issuer, data[keySize:2*keySize])
+	copy(sig, data[2*keySize:])
+	return key, issuer, sig
+}
+
 // EndEntityCertificate represents an assertion of a binding of a collection of
 // attributes to a public key, with a bounded validity time.
 type EndEntityCertificate struct {
@@ -101,44 +149,21 @@ type EndEntityCertificate struct {
 	NotBefore  time.Time
 	NotAfter   time.Time
 	Attributes []Attribute
-	Key        eddsa.PublicKey
-	Issuer     eddsa.PublicKey
+	Key        ed25519.PublicKey
+	Issuer     ed25519.PublicKey
 	Signature  []byte
 }
 
 func (cert EndEntityCertificate) Marshal() ([]byte, error) {
-	if len(cert.Key) != keySize {
-		return nil, fmt.Errorf("minicert: Incorrect size for key [%d] != [%d]", len(cert.Key), keySize)
-	}
-
-	if len(cert.Issuer) != keySize {
-		return nil, fmt.Errorf("minicert: Incorrect size for key [%d] != [%d]", len(cert.Issuer), keySize)
-	}
-
-	if len(cert.Signature) {
-		return nil, fmt.Errorf("minicert: Incorrect size for key [%d] != [%d]", len(cert.Signature), sigSize)
-	}
-
-	notBefore := uint64(cert.NotBefore.Unix())
-	notAfter := uint64(cert.NotAfter.Unix())
-
-	out := make([]byte, 18)
-	binary.BigEndian.PutUint16(out[:2], cert.Version)
-	binary.BigEndian.PutUint64(out[2:10], notBefore)
-	binary.BigEndian.PutUint64(out[10:], notAfter)
-
-	attrs, err := marshalAttributes(cert.Attributes)
+	header := marshalHeader(cert.Version, cert.NotBefore, cert.NotAfter)
+	attrs := marshalAttributes(cert.Attributes)
+	footer, err := marshalFooter(cert.Key, cert.Issuer, cert.Signature)
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, attrs...)
 
-	footer := make([]byte, keySize+keySize+sigSize)
-	copy(footer[:keySize], cert.Key)
-	copy(footer[keySize:keySize+keySize], cert.Issuer)
-	copy(footer[keySize+keySize:], cert.Signature)
-
-	return append(out, footer...)
+	out := append(header, attrs...)
+	return append(out, footer...), nil
 }
 
 func (cert *EndEntityCertificate) Unmarshal(data []byte) error {
@@ -146,21 +171,28 @@ func (cert *EndEntityCertificate) Unmarshal(data []byte) error {
 		return fmt.Errorf("minicert: Data too short for end-entity certificate")
 	}
 
-	attrs, err := unmarshalAttributes(data[headerSize:-footerSize])
+	attrs, err := unmarshalAttributes(data[headerSize : len(data)-footerSize])
 	if err != nil {
 		return err
 	}
 
-	cert.Version = binary.BigEndian.Uint16(data[:2])
-	notBefore = binary.BigEndian.Uint64(data[2:10])
-	notAfter = binary.BigEndian.Uint64(data[10:18])
-
-	cert.NotBefore = time.Unix(notBefore, 0)
-	cert.NotAfter = time.Unix(notAfter, 0)
+	cert.Version, cert.NotBefore, cert.NotAfter = unmarshalHeader(data[:headerSize])
 	cert.Attributes = attrs
-	cert.Key = data[-footerSize:-(keySize + sigSize)]
-	cert.Issuer = data[-(keySize + sigSize):-sigSize]
-	cert.Signature = data[-sigSize:]
+	cert.Key, cert.Issuer, cert.Signature = unmarshalFooter(data[len(data)-footerSize:])
+	return nil
+}
+
+func (cert EndEntityCertificate) Verify() error {
+	tbs, err := cert.Marshal()
+	if err != nil {
+		return err
+	}
+
+	tbs = tbs[:len(tbs)-sigSize]
+	if !ed25519.Verify(cert.Issuer, tbs, cert.Signature) {
+		return fmt.Errorf("minicert: End-entity certificate signature failed to verify")
+	}
+	return nil
 }
 
 // AuthorityCertificate represents a certificate for an intermediate or root
@@ -170,34 +202,137 @@ type AuthorityCertificate struct {
 	NotBefore time.Time
 	NotAfter  time.Time
 	Flags     uint16
-	Key       eddsa.PublicKey
-	Issuer    eddsa.PublicKey
+	Key       ed25519.PublicKey
+	Issuer    ed25519.PublicKey
 	Signature []byte
 }
 
 func (cert AuthorityCertificate) Marshal() ([]byte, error) {
-	// TODO
-	return nil, nil
+	header := marshalHeader(cert.Version, cert.NotBefore, cert.NotAfter)
+
+	footer, err := marshalFooter(cert.Key, cert.Issuer, cert.Signature)
+	if err != nil {
+		return nil, err
+	}
+
+	flags := make([]byte, 2)
+	binary.BigEndian.PutUint16(flags, cert.Flags)
+
+	out := append(header, flags...)
+	return append(out, footer...), nil
 }
 
 func (cert *AuthorityCertificate) Unmarshal(data []byte) error {
-	// TODO
+	if len(data) != AuthorityCertificateSize {
+		return fmt.Errorf("minicert: Data too short for authority certificate")
+	}
+
+	cert.Version, cert.NotBefore, cert.NotAfter = unmarshalHeader(data[:headerSize])
+	cert.Flags = binary.BigEndian.Uint16(data[headerSize : headerSize+2])
+	cert.Key, cert.Issuer, cert.Signature = unmarshalFooter(data[len(data)-footerSize:])
 	return nil
 }
 
-func findPaths(ee *EndEntityCertificate, authorities []*AuthorityCertificate, trusted []eddsa.PublicKey) (map[int][]int, int) {
-	// TODO: Build shortest-path tree
-	return nil, 0
+func (cert AuthorityCertificate) Verify() error {
+	tbs, err := cert.Marshal()
+	if err != nil {
+		return err
+	}
+
+	tbs = tbs[:len(tbs)-sigSize]
+	if !ed25519.Verify(cert.Issuer, tbs, cert.Signature) {
+		return fmt.Errorf("minicert: Authority certificate signature failed to verify")
+	}
+	return nil
+}
+
+func findPaths(ee *EndEntityCertificate, authorities []*AuthorityCertificate, trusted []ed25519.PublicKey) (map[int][]int, int) {
+	paths := map[int][]int{}
+	for i, auth := range authorities {
+		if bytes.Equal(ee.Issuer, auth.Key) {
+			paths[i] = []int{i}
+		} else {
+			paths[i] = nil
+		}
+	}
+
+	// Build a shortest-path tree over the authorities
+	for {
+		loops := 0
+		changed := 0
+
+		for i, child := range authorities {
+			if paths[i] == nil {
+				continue
+			}
+
+			for j, parent := range authorities {
+				if bytes.Equal(child.Issuer, parent.Key) &&
+					(paths[j] == nil || len(paths[j]) > len(paths[i])+1) {
+					paths[j] = append(paths[i], j)
+					changed += 1
+				}
+			}
+		}
+
+		loops += 1
+		if changed == 0 || loops > len(authorities) {
+			break
+		}
+	}
+
+	// Filter to paths that end in trusted keys
+	keyPaths := map[int][]int{}
+	maxPathLen := 0
+	for i, key := range trusted {
+		for _, path := range paths {
+			terminal := authorities[path[len(path)-1]]
+			if bytes.Equal(terminal.Issuer, key) {
+				keyPaths[i] = path
+
+				if len(path) > maxPathLen {
+					maxPathLen = len(path)
+				}
+			}
+		}
+	}
+
+	return keyPaths, maxPathLen
 }
 
 func verifyPath(ee *EndEntityCertificate, authorities []*AuthorityCertificate, path []int) error {
-	// TODO
+	err := ee.Verify()
+	if len(path) == 0 || err != nil {
+		return err
+	}
+
+	// TODO: Check flags in issuer
+	if !bytes.Equal(ee.Issuer, authorities[path[0]].Key) {
+		return fmt.Errorf("minicert: First authority does not verify end entity")
+	}
+
+	curr := authorities[path[0]]
+	next := authorities[path[1]]
+	for i := 1; i < len(path); i += 1 {
+		if err = curr.Verify(); err != nil {
+			return err
+		}
+
+		// TODO: Check flags in issuer
+		if !bytes.Equal(curr.Issuer, next.Key) {
+			return fmt.Errorf("minicert: Path step invalid [%d:%d] -> [%d:%d]", i-1, path[i-1], i, path[i])
+		}
+
+		curr = next
+		next = authorities[path[i]]
+	}
+
 	return nil
 }
 
 // Verify finds the shortest path from the provided end-entity certificate to a
 // trusted public key, using the pool of authorities provided.
-func Verify(ee *EndEntityCertificate, authorities []*AuthorityCertificate, trusted []eddsa.PublicKey) error {
+func Verify(ee *EndEntityCertificate, authorities []*AuthorityCertificate, trusted []ed25519.PublicKey) error {
 	// Build shortest-path tree from EE => distance for each root
 	plausiblePaths, maxPathLen := findPaths(ee, authorities, trusted)
 	if maxPathLen == 0 {
@@ -206,17 +341,17 @@ func Verify(ee *EndEntityCertificate, authorities []*AuthorityCertificate, trust
 
 	// Go through paths in length order to find the shortest valid one
 	for pathLen := 0; pathLen <= maxPathLen; pathLen += 1 {
-		for i, path := range plausiblePaths {
+		for _, path := range plausiblePaths {
 			if len(path) != pathLen {
 				continue
 			}
 
-			if verifyPath(ee, authorities, path) {
+			if verifyPath(ee, authorities, path) == nil {
 				// TODO return path
 				return nil
 			}
 		}
 	}
 
-	return fmt.Error("minicert: No valid path found")
+	return fmt.Errorf("minicert: No valid path found")
 }
