@@ -1,6 +1,7 @@
 package minicert
 
 import (
+	"encoding/binary"
 	"golang.org/x/crypto/ed25519"
 	"time"
 )
@@ -36,8 +37,10 @@ const (
 	MinEndEntityCertificateSize = 148
 	AuthorityCertificateSize    = 148
 
-	sigSize = ed25519.SignatureSize
-	keySize = ed25519.PublicKeySize
+	sigSize    = ed25519.SignatureSize
+	keySize    = ed25519.PublicKeySize
+	headerSize = 18
+	footerSize = keySize + keySize + sigSize
 )
 
 // Attribute represents a generic value to
@@ -104,11 +107,60 @@ type EndEntityCertificate struct {
 }
 
 func (cert EndEntityCertificate) Marshal() ([]byte, error) {
-	// TODO
+	if len(cert.Key) != keySize {
+		return nil, fmt.Errorf("minicert: Incorrect size for key [%d] != [%d]", len(cert.Key), keySize)
+	}
+
+	if len(cert.Issuer) != keySize {
+		return nil, fmt.Errorf("minicert: Incorrect size for key [%d] != [%d]", len(cert.Issuer), keySize)
+	}
+
+	if len(cert.Signature) {
+		return nil, fmt.Errorf("minicert: Incorrect size for key [%d] != [%d]", len(cert.Signature), sigSize)
+	}
+
+	notBefore := uint64(cert.NotBefore.Unix())
+	notAfter := uint64(cert.NotAfter.Unix())
+
+	out := make([]byte, 18)
+	binary.BigEndian.PutUint16(out[:2], cert.Version)
+	binary.BigEndian.PutUint64(out[2:10], notBefore)
+	binary.BigEndian.PutUint64(out[10:], notAfter)
+
+	attrs, err := marshalAttributes(cert.Attributes)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, attrs...)
+
+	footer := make([]byte, keySize+keySize+sigSize)
+	copy(footer[:keySize], cert.Key)
+	copy(footer[keySize:keySize+keySize], cert.Issuer)
+	copy(footer[keySize+keySize:], cert.Signature)
+
+	return append(out, footer...)
 }
 
 func (cert *EndEntityCertificate) Unmarshal(data []byte) error {
-	// TODO
+	if len(data) < MinEndEntityCertificateSize {
+		return fmt.Errorf("minicert: Data too short for end-entity certificate")
+	}
+
+	attrs, err := unmarshalAttributes(data[headerSize:-footerSize])
+	if err != nil {
+		return err
+	}
+
+	cert.Version = binary.BigEndian.Uint16(data[:2])
+	notBefore = binary.BigEndian.Uint64(data[2:10])
+	notAfter = binary.BigEndian.Uint64(data[10:18])
+
+	cert.NotBefore = time.Unix(notBefore, 0)
+	cert.NotAfter = time.Unix(notAfter, 0)
+	cert.Attributes = attrs
+	cert.Key = data[-footerSize:-(keySize + sigSize)]
+	cert.Issuer = data[-(keySize + sigSize):-sigSize]
+	cert.Signature = data[-sigSize:]
 }
 
 // AuthorityCertificate represents a certificate for an intermediate or root
