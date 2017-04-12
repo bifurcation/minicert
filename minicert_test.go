@@ -310,6 +310,8 @@ func TestSignVerify(t *testing.T) {
 	}
 }
 
+// Pool of certificates for testing
+//
 // EE Issuer:  A
 // CA Keys:    B C D E F
 // Trusted:    1 D F
@@ -326,12 +328,11 @@ func TestSignVerify(t *testing.T) {
 //
 // 0 -6-> 1
 //
-// Expected Results:
+// Expected path building results:
 //	 maxPathLen = 3
 //	===
 //   1=D -> 4 5
 //   2=F -> 0 1 2
-//
 func TestFindPaths(t *testing.T) {
 	ee := &EndEntityCertificate{Issuer: []byte{0x0A}}
 	authorities := []*AuthorityCertificate{
@@ -362,13 +363,116 @@ func TestFindPaths(t *testing.T) {
 	if maxPathLen != maxPathLenGood {
 		t.Fatalf("Incorrect max path len [%+v] != [%+v]", maxPathLen, maxPathLenGood)
 	}
-
 }
 
 func TestVerifyChain(t *testing.T) {
-	// TODO
-}
+	pubX, _, _ := ed25519.GenerateKey(rand.Reader)
+	pubA, privA, _ := ed25519.GenerateKey(rand.Reader)
+	pubB, privB, _ := ed25519.GenerateKey(rand.Reader)
+	pubC, privC, _ := ed25519.GenerateKey(rand.Reader)
+	pubD, privD, _ := ed25519.GenerateKey(rand.Reader)
+	pubE, privE, _ := ed25519.GenerateKey(rand.Reader)
+	pubF, privF, _ := ed25519.GenerateKey(rand.Reader)
+	pub0, _, _ := ed25519.GenerateKey(rand.Reader)
+	pub1, priv1, _ := ed25519.GenerateKey(rand.Reader)
 
-func TestVerify(t *testing.T) {
-	// TODO
+	ee := &EndEntityCertificate{Key: pubX, Issuer: pubA}
+	ee.Sign(privA)
+
+	auth0 := &AuthorityCertificate{Key: pubA, Issuer: pubB}
+	auth1 := &AuthorityCertificate{Key: pubB, Issuer: pubE}
+	auth2 := &AuthorityCertificate{Key: pubE, Issuer: pubF}
+	auth3 := &AuthorityCertificate{Key: pubC, Issuer: pubB}
+	auth4 := &AuthorityCertificate{Key: pubA, Issuer: pubC}
+	auth5 := &AuthorityCertificate{Key: pubC, Issuer: pubD}
+	auth6 := &AuthorityCertificate{Key: pub0, Issuer: pub1}
+
+	auth0.Sign(privB)
+	auth1.Sign(privE)
+	auth2.Sign(privF)
+	auth3.Sign(privB)
+	auth4.Sign(privC)
+	auth5.Sign(privD)
+	auth6.Sign(priv1)
+
+	authorities := []*AuthorityCertificate{
+		auth0, auth1, auth2, auth3,
+		auth4, auth5, auth6,
+	}
+
+	// Verify all paths through (successful)
+	paths := [][]int{
+		{0, 1, 2},
+		{4, 3, 1, 2},
+		{4, 5},
+	}
+	for i, path := range paths {
+		err := verifyPath(ee, authorities, path)
+		if err != nil {
+			t.Fatalf("Path validation test #%d [%v]", i, err)
+		}
+	}
+
+	// Chain verify (no path)
+	err := verifyPath(ee, authorities, nil)
+	if err != nil {
+		t.Fatalf("Self validation test [%v]", err)
+	}
+
+	// Chain verify (EE key mismatch)
+	err = verifyPath(ee, authorities, []int{5})
+	if err == nil {
+		t.Fatalf("Chain verify should not have succeeded")
+	}
+
+	// Chain verify (EE signature validation failure)
+	ee.Signature = nil
+	err = verifyPath(ee, authorities, []int{0})
+	if err == nil {
+		t.Fatalf("Chain verify should not have succeeded")
+	}
+	ee.Sign(privA)
+
+	// Chain verify (CA key mismatch)
+	err = verifyPath(ee, authorities, []int{0, 5})
+	if err == nil {
+		t.Fatalf("Chain verify should not have succeeded")
+	}
+
+	// Chain verify (CA signature validation failure)
+	auth0.Signature = nil
+	err = verifyPath(ee, authorities, []int{0, 1})
+	if err == nil {
+		t.Fatalf("Chain verify should not have succeeded")
+	}
+	auth0.Sign(privB)
+
+	// Verify with path building (successful)
+	trusted := []ed25519.PublicKey{pubD, pubF, pub1}
+	err = Verify(ee, authorities, trusted)
+	if err != nil {
+		t.Fatalf("Verification with path building test [%v]", err)
+	}
+
+	// Verify with path building (no plausible path to trusted)
+	err = Verify(ee, authorities, []ed25519.PublicKey{pub1})
+	if err == nil {
+		t.Fatalf("Verification with path building should not have succeeded")
+	}
+
+	// Verify with path building (no valid path)
+	// A -0-> B -/1-> E -2-> F
+	// |      ^
+	// |      3
+	// |      |
+	// +--4-> C -/5-> D
+	authorities[1].Signature = nil
+	authorities[5].Signature = nil
+	err = Verify(ee, authorities, trusted)
+	if err == nil {
+		t.Fatalf("Verification with path building should not have succeeded")
+	}
+	authorities[1].Sign(privE)
+	authorities[5].Sign(privD)
+
 }

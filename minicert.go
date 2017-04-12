@@ -10,6 +10,8 @@ import (
 
 /*
 
+TODO: Return built path(s)
+TODO: Check validity times
 TODO: Algorithm agility
 TODO: Define flags to separate EE from CA issuers
 
@@ -344,9 +346,8 @@ func findPaths(ee *EndEntityCertificate, authorities []*AuthorityCertificate, tr
 }
 
 func verifyPath(ee *EndEntityCertificate, authorities []*AuthorityCertificate, path []int) error {
-	err := ee.Verify()
-	if len(path) == 0 || err != nil {
-		return err
+	if len(path) == 0 {
+		return ee.Verify()
 	}
 
 	// TODO: Check flags in issuer
@@ -354,20 +355,28 @@ func verifyPath(ee *EndEntityCertificate, authorities []*AuthorityCertificate, p
 		return fmt.Errorf("minicert: First authority does not verify end entity")
 	}
 
+	if err := ee.Verify(); err != nil {
+		return err
+	}
+
 	curr := authorities[path[0]]
-	next := authorities[path[1]]
 	for i := 1; i < len(path); i += 1 {
-		if err = curr.Verify(); err != nil {
-			return err
-		}
+		next := authorities[path[i]]
 
 		// TODO: Check flags in issuer
 		if !bytes.Equal(curr.Issuer, next.Key) {
-			return fmt.Errorf("minicert: Path step invalid [%d:%d] -> [%d:%d]", i-1, path[i-1], i, path[i])
+			return fmt.Errorf("minicert: Path step invalid [%d] [%d -> %d]", i-1, path[i-1], path[i])
+		}
+
+		if err := curr.Verify(); err != nil {
+			return err
 		}
 
 		curr = next
-		next = authorities[path[i]]
+	}
+
+	if err := curr.Verify(); err != nil {
+		return err
 	}
 
 	return nil
