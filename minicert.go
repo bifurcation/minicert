@@ -197,6 +197,18 @@ func (cert *EndEntityCertificate) Unmarshal(data []byte) error {
 	return nil
 }
 
+func (cert *EndEntityCertificate) Sign(priv ed25519.PrivateKey) error {
+	cert.Signature = bytes.Repeat([]byte{0}, sigSize)
+	tbs, err := cert.Marshal()
+	if err != nil {
+		return err
+	}
+
+	tbs = tbs[:len(tbs)-sigSize]
+	cert.Signature = ed25519.Sign(priv, tbs)
+	return nil
+}
+
 func (cert EndEntityCertificate) Verify() error {
 	tbs, err := cert.Marshal()
 	if err != nil {
@@ -245,6 +257,18 @@ func (cert *AuthorityCertificate) Unmarshal(data []byte) error {
 	cert.Version, cert.NotBefore, cert.NotAfter = unmarshalHeader(data[:headerSize])
 	cert.Flags = binary.BigEndian.Uint16(data[headerSize : headerSize+2])
 	cert.Key, cert.Issuer, cert.Signature = unmarshalFooter(data[len(data)-footerSize:])
+	return nil
+}
+
+func (cert *AuthorityCertificate) Sign(priv ed25519.PrivateKey) error {
+	cert.Signature = bytes.Repeat([]byte{0}, sigSize)
+	tbs, err := cert.Marshal()
+	if err != nil {
+		return err
+	}
+
+	tbs = tbs[:len(tbs)-sigSize]
+	cert.Signature = ed25519.Sign(priv, tbs)
 	return nil
 }
 
@@ -301,6 +325,10 @@ func findPaths(ee *EndEntityCertificate, authorities []*AuthorityCertificate, tr
 	maxPathLen := 0
 	for i, key := range trusted {
 		for _, path := range paths {
+			if len(path) < 1 {
+				continue
+			}
+
 			terminal := authorities[path[len(path)-1]]
 			if bytes.Equal(terminal.Issuer, key) {
 				keyPaths[i] = path

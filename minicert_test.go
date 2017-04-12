@@ -2,7 +2,9 @@ package minicert
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/hex"
+	"golang.org/x/crypto/ed25519"
 	"reflect"
 	"testing"
 	"time"
@@ -222,8 +224,145 @@ func TestCAMarshalUnmarshal(t *testing.T) {
 	}
 }
 
+func TestSignVerify(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+
+	// End entity
+	ee := EndEntityCertificate{
+		Version:    0x00,
+		NotBefore:  time.Unix(0x01, 0),
+		NotAfter:   time.Unix(0x02, 0),
+		Attributes: []Attribute{{Type: 0x03, Value: []byte{0x04, 0x05}}},
+		Key:        pub,
+		Issuer:     pub,
+	}
+	eeBadForm := EndEntityCertificate{}
+	eeBadSig := EndEntityCertificate{
+		Key:       pub,
+		Issuer:    pub,
+		Signature: bytes.Repeat([]byte{0x00}, sigSize),
+	}
+
+	err := ee.Sign(priv)
+	if err != nil {
+		t.Fatalf("EE sign error [%v]", err)
+	}
+
+	err = eeBadForm.Sign(priv)
+	if err == nil {
+		t.Fatalf("EE sign should not have succeeded")
+	}
+
+	err = ee.Verify()
+	if err != nil {
+		t.Fatalf("EE verify error [%v]", err)
+	}
+
+	err = eeBadForm.Verify()
+	if err == nil {
+		t.Fatalf("EE verify should not have succeeded")
+	}
+
+	err = eeBadSig.Verify()
+	if err == nil {
+		t.Fatalf("EE verify should not have succeeded")
+	}
+
+	// Authority
+	ca := AuthorityCertificate{
+		Version:   0x0000,
+		NotBefore: time.Unix(0x01, 0),
+		NotAfter:  time.Unix(0x02, 0),
+		Flags:     0xFEFF,
+		Key:       pub,
+		Issuer:    pub,
+	}
+	caBadForm := AuthorityCertificate{}
+	caBadSig := AuthorityCertificate{
+		Key:       pub,
+		Issuer:    pub,
+		Signature: bytes.Repeat([]byte{0x00}, sigSize),
+	}
+
+	err = ca.Sign(priv)
+	if err != nil {
+		t.Fatalf("CA sign error [%v]", err)
+	}
+
+	err = caBadForm.Sign(priv)
+	if err == nil {
+		t.Fatalf("CA sign should not have succcaded")
+	}
+
+	err = ca.Verify()
+	if err != nil {
+		t.Fatalf("CA verify error [%v]", err)
+	}
+
+	err = caBadForm.Verify()
+	if err == nil {
+		t.Fatalf("CA verify should not have succcaded")
+	}
+
+	err = caBadSig.Verify()
+	if err == nil {
+		t.Fatalf("CA verify should not have succcaded")
+	}
+}
+
+// EE Issuer:  A
+// CA Keys:    B C D E F
+// Trusted:    1 D F
+// Irrelevant: 0 1
+//
+// Graph:
+//
+//
+// A -0-> B -1-> E -2-> F
+// |      ^
+// |      3
+// |      |
+// +--4-> C -5-> D
+//
+// 0 -6-> 1
+//
+// Expected Results:
+//	 maxPathLen = 3
+//	===
+//   1=D -> 4 5
+//   2=F -> 0 1 2
+//
 func TestFindPaths(t *testing.T) {
-	// TODO
+	ee := &EndEntityCertificate{Issuer: []byte{0x0A}}
+	authorities := []*AuthorityCertificate{
+		&AuthorityCertificate{Key: []byte{0x0A}, Issuer: []byte{0x0B}},
+		&AuthorityCertificate{Key: []byte{0x0B}, Issuer: []byte{0x0E}},
+		&AuthorityCertificate{Key: []byte{0x0E}, Issuer: []byte{0x0F}},
+		&AuthorityCertificate{Key: []byte{0x0C}, Issuer: []byte{0x0B}},
+		&AuthorityCertificate{Key: []byte{0x0A}, Issuer: []byte{0x0C}},
+		&AuthorityCertificate{Key: []byte{0x0C}, Issuer: []byte{0x0D}},
+		&AuthorityCertificate{Key: []byte{0x00}, Issuer: []byte{0x01}},
+	}
+	trusted := []ed25519.PublicKey{
+		{0x01},
+		{0x0D},
+		{0x0F},
+	}
+
+	pathsGood := map[int][]int{
+		1: []int{4, 5},
+		2: []int{0, 1, 2},
+	}
+	maxPathLenGood := 3
+
+	paths, maxPathLen := findPaths(ee, authorities, trusted)
+	if !reflect.DeepEqual(paths, pathsGood) {
+		t.Fatalf("Path building failed [%+v] != [%+v]", paths, pathsGood)
+	}
+	if maxPathLen != maxPathLenGood {
+		t.Fatalf("Incorrect max path len [%+v] != [%+v]", maxPathLen, maxPathLenGood)
+	}
+
 }
 
 func TestVerifyChain(t *testing.T) {
