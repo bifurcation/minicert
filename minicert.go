@@ -9,6 +9,10 @@ import (
 )
 
 /*
+
+TODO: Algorithm agility
+TODO: Define flags to separate EE from CA issuers
+
 struct {
   uint16 Type;
   opaque Value<0..2^16-1>;
@@ -52,14 +56,25 @@ type Attribute struct {
 }
 
 func marshalAttributes(attrs []Attribute) []byte {
-	buf := []byte{}
+	attrSize := 0
 	for _, attr := range attrs {
-		val := append([]byte{byte(attr.Type >> 8), byte(attr.Type)}, attr.Value...)
-		buf = append(buf, val...)
+		attrSize += 4 + len(attr.Value)
 	}
 
-	bufLen := len(buf)
-	return append([]byte{byte(bufLen >> 8), byte(bufLen)}, buf...)
+	buf := make([]byte, 2+attrSize)
+	buf[0] = byte(attrSize >> 8)
+	buf[1] = byte(attrSize)
+
+	start := 2
+	for _, attr := range attrs {
+		attrLen := len(attr.Value)
+		binary.BigEndian.PutUint16(buf[start:start+2], attr.Type)
+		binary.BigEndian.PutUint16(buf[start+2:start+4], uint16(attrLen))
+		copy(buf[start+4:start+4+attrLen], attr.Value)
+		start += 4 + attrLen
+	}
+
+	return buf
 }
 
 func unmarshalAttributes(data []byte) ([]Attribute, error) {
