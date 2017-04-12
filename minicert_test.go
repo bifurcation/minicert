@@ -474,5 +474,4 @@ func TestVerifyChain(t *testing.T) {
 	}
 	authorities[1].Sign(privE)
 	authorities[5].Sign(privD)
-
 }
