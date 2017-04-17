@@ -16,6 +16,63 @@ TODO: Algorithm agility
 TODO: Define flags to separate EE from CA issuers
 
 struct {
+	uint16 version;										// 2
+	uint16 keyAlgorithm;							// 2
+	uint16 sigAlgorithm;							// 2
+	Attribute attributes<0..2^16-1>;	// 2 + NN * (2 + 2 + N)
+  uint64 notBefore;									// 8
+  uint64 notAfter;									// 8
+	opaque publicKey[keyAlgorithm.keySize];
+  opaque issuer[sigAlgorithm.issuerSize];
+  opaque signature[sigAlgorithm.sigSize];
+} AttributeCertificate
+
+struct {
+	uint16 version;										// 2
+	uint16 keyAlgorithm;							// 2
+	uint16 sigAlgorithm;							// 2
+	uint16 flags											// 2
+  uint64 notBefore;									// 8
+  uint64 notAfter;									// 8
+	opaque publicKey[keyAlgorithm.keySize];
+  opaque issuer[sigAlgorithm.issuerSize];
+  opaque signature[sigAlgorithm.sigSize];
+} AuthorityCertificate
+
+** First 8 octets => Length of remainder
+** Algorithm MUST define the following:
+	* Fixed sizes for: (1) public keys, (2) issuer indicators, (3) signatures
+	* An algorithm for matching issuer indicators to public keys
+	* A signing algorithm
+	* A verification algorithm
+** In chaining, MUST be the case that:
+	* parent.keyAlgorithm == child.sigAlgorithm
+	* IssuerMatch(child.issuer, parent.key)
+	* Verify(parent.key, child.TBS, child.sigAlgorithm)
+
+type AlgorithmInfo struct {
+	KeySize int
+	IssuerSize int
+	SigSize int
+	IssuerMatch(issuer, key []byte) bool
+	Sign(privateKey, message []byte) []byte
+	Verify(publicKey, message, signature []byte) bool
+}
+
+=====
+
+struct {
+	uint16 version;										// 2
+	uint16 algorithm;									// 2
+	uint16 flags;											// 2
+  uint64 notBefore;									// 8
+  uint64 notAfter;									// 8
+	opaque publicKey[32];     // 32
+  opaque issuer[32];        // 32
+  opaque signature[64];     // 64
+} AuthorityCertificate
+
+struct {
   uint16 Type;
   opaque Value<0..2^16-1>;
 } Name
