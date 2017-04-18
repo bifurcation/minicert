@@ -45,8 +45,8 @@ struct {
 Compare with the certificate chain served by `google.com` right now:
 
 ```
-                Current              Minicert (ECDSA384)      Savings
-      ========================== ========================== ============
+                Current              Minicert (ECDSA384)          Savings
+      ========================== ========================== ==================
       Total Crypto SANs Overhead Total Crypto SANs Overhead Total Crypto Other
       ----- ------ ---- -------- ----- ------ ---- -------- ----- ------ -----
 EE     2078    512  938      628  1202    240  938       24   42%    53%   96%
