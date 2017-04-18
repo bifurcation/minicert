@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+type TestError bool
+
+func (t TestError) Error() string {
+	return "test"
+}
+
+func TestPanicOnError(t *testing.T) {
+	defer func() {
+		recover()
+	}()
+
+	panicOnError(TestError(true))
+	t.Fatalf("Didn't panic")
+}
+
 func TestCrypto(t *testing.T) {
 	msg := []byte("This is a test message.")
 
