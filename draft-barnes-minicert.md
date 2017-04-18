@@ -17,25 +17,25 @@ interpreted as described in RFC 2119 [RFC2119].
 
 ~~~~~
 struct {
-	uint16 version;										// 2
-	uint16 keyAlgorithm;							// 2
-	uint16 sigAlgorithm;							// 2
-	Attribute attributes<0..2^16-1>;	// 2 + NN * (2 + 2 + N)
-  uint64 notBefore;									// 8
-  uint64 notAfter;									// 8
-	opaque publicKey[keyAlgorithm.keySize];
+  uint16 version;                         // 2 bytes
+  uint16 keyAlgorithm;                    // 2
+  uint16 sigAlgorithm;                    // 2
+  Attribute attributes<0..2^16-1>;        // 2 + NN * (2 + 2 + N)
+  uint64 notBefore;                       // 8
+  uint64 notAfter;                        // 8
+  opaque publicKey[keyAlgorithm.keySize];
   opaque issuer[sigAlgorithm.issuerSize];
   opaque signature[sigAlgorithm.sigSize];
 } AttributeCertificate
 
 struct {
-	uint16 version;										// 2
-	uint16 keyAlgorithm;							// 2
-	uint16 sigAlgorithm;							// 2
-	uint16 flags											// 2
-  uint64 notBefore;									// 8
-  uint64 notAfter;									// 8
-	opaque publicKey[keyAlgorithm.keySize];
+  uint16 version;                         // 2 bytes
+  uint16 keyAlgorithm;                    // 2
+  uint16 sigAlgorithm;                    // 2
+  uint16 flags                            // 2
+  uint64 notBefore;                       // 8
+  uint64 notAfter;                        // 8
+  opaque publicKey[keyAlgorithm.keySize];
   opaque issuer[sigAlgorithm.issuerSize];
   opaque signature[sigAlgorithm.sigSize];
 } AuthorityCertificate
@@ -59,17 +59,17 @@ Algorithm MUST define the following:
 
 ### ECDSA with P-256 and SHA-256
 
-* Key size: 65
+* Key size: 64
 * Issuer size: 32
-* Signature size: 65
+* Signature size: 64
 * Issuer match: SHA-256(key) == issuer
 * Sign / Verify: ECDSA
 
 ### ECDSA with P-384 and SHA-384
 
-* Key size: 97
+* Key size: 96
 * Issuer size: 48
-* Signature size: 97
+* Signature size: 96
 * Issuer match: SHA-384(key) == issuer
 * Sign / Verify: ECDSA
 
