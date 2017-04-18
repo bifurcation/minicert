@@ -19,6 +19,7 @@ type algorithmInfo struct {
 	IssuerSize  int
 	SigSize     int
 	GenerateKey func() (private, public []byte)
+	MakePublic  func(priv []byte) []byte
 	MakeIssuer  func(key []byte) []byte
 	IssuerMatch func(issuer, key []byte) bool
 	Sign        func(privateKey, message []byte) []byte
@@ -43,6 +44,7 @@ var (
 			IssuerSize:  32,
 			SigSize:     64,
 			GenerateKey: func() (priv, pub []byte) { return generateECDSA(p256) },
+			MakePublic:  func(priv []byte) []byte { return privToPubECDSA(p256, priv) },
 			MakeIssuer:  func(key []byte) []byte { return makeHash(s256, key) },
 			IssuerMatch: func(issuer, key []byte) bool { return hashMatch(s256, issuer, key) },
 			Sign:        func(priv, msg []byte) []byte { return signECDSA(s256, 32, priv, msg) },
@@ -53,6 +55,7 @@ var (
 			IssuerSize:  48,
 			SigSize:     96,
 			GenerateKey: func() (priv, pub []byte) { return generateECDSA(p384) },
+			MakePublic:  func(priv []byte) []byte { return privToPubECDSA(p384, priv) },
 			MakeIssuer:  func(key []byte) []byte { return makeHash(s384, key) },
 			IssuerMatch: func(issuer, key []byte) bool { return hashMatch(s384, issuer, key) },
 			Sign:        func(priv, msg []byte) []byte { return signECDSA(s384, 48, priv, msg) },
@@ -63,6 +66,7 @@ var (
 			IssuerSize:  32,
 			SigSize:     64,
 			GenerateKey: generateEd25519,
+			MakePublic:  privToPubEd25519,
 			MakeIssuer:  func(x []byte) []byte { return x },
 			IssuerMatch: equalMatch,
 			Sign:        signEd25519,
@@ -70,6 +74,46 @@ var (
 		},
 	}
 )
+
+// XXX: Should handle errors more elegantly
+func panicOnError(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+// GenerateKey
+func generateECDSA(curve elliptic.Curve) (priv, pub []byte) {
+	private, err := ecdsa.GenerateKey(curve, rand.Reader)
+	panicOnError(err)
+
+	priv, err = x509.MarshalECPrivateKey(private)
+	panicOnError(err)
+
+	pubKey := private.Public().(*ecdsa.PublicKey)
+	pub = elliptic.Marshal(curve, pubKey.X, pubKey.Y)[1:]
+	return
+}
+
+func generateEd25519() (priv, pub []byte) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	panicOnError(err)
+	return
+}
+
+// MakePublic
+func privToPubECDSA(curve elliptic.Curve, priv []byte) (pub []byte) {
+	private, err := x509.ParseECPrivateKey(priv)
+	panicOnError(err)
+	pubKey := private.Public().(*ecdsa.PublicKey)
+	pub = elliptic.Marshal(curve, pubKey.X, pubKey.Y)[1:]
+	return
+}
+
+func privToPubEd25519(priv []byte) (pub []byte) {
+	pub = ed25519.PrivateKey(priv).Public().(ed25519.PublicKey)
+	return
+}
 
 // MakeIssuer
 func makeHash(h func() hash.Hash, key []byte) []byte {
@@ -89,29 +133,17 @@ func equalMatch(issuer, key []byte) bool {
 	return bytes.Equal(issuer, key)
 }
 
-// GenerateKey
-func generateECDSA(curve elliptic.Curve) (priv, pub []byte) {
-	private, _ := ecdsa.GenerateKey(curve, rand.Reader)
-	priv, _ = x509.MarshalECPrivateKey(private)
-
-	pubKey := private.Public().(*ecdsa.PublicKey)
-	pub = elliptic.Marshal(curve, pubKey.X, pubKey.Y)[1:]
-	return
-}
-
-func generateEd25519() (priv, pub []byte) {
-	pub, priv, _ = ed25519.GenerateKey(rand.Reader)
-	return
-}
-
 // Sign
 func signECDSA(h func() hash.Hash, intSize int, priv, msg []byte) []byte {
-	private, _ := x509.ParseECPrivateKey(priv)
+	private, err := x509.ParseECPrivateKey(priv)
+	panicOnError(err)
 
 	digest := h()
 	digest.Write(msg)
 
-	r, s, _ := ecdsa.Sign(rand.Reader, private, digest.Sum(nil))
+	r, s, err := ecdsa.Sign(rand.Reader, private, digest.Sum(nil))
+	panicOnError(err)
+
 	rb := r.Bytes()
 	sb := s.Bytes()
 	rbOff := intSize - len(rb)

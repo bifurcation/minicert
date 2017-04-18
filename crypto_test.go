@@ -1,6 +1,7 @@
 package minicert
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -9,6 +10,7 @@ func TestCrypto(t *testing.T) {
 
 	for alg, info := range algInfo {
 		priv, pub := info.GenerateKey()
+		alsoPub := info.MakePublic(priv)
 		issuer := info.MakeIssuer(pub)
 		match := info.IssuerMatch(issuer, pub)
 		sig := info.Sign(priv, msg)
@@ -24,6 +26,10 @@ func TestCrypto(t *testing.T) {
 
 		if len(sig) != info.SigSize {
 			t.Fatalf("(%04x) Incorrect signature size [%d] != [%d]", alg, len(sig), info.SigSize)
+		}
+
+		if !bytes.Equal(pub, alsoPub) {
+			t.Fatalf("(%04x) Incorrect public key conversion [%x] != [%x]", alg, pub, alsoPub)
 		}
 
 		if !match {
