@@ -13,32 +13,33 @@ interpreted as described in RFC 2119 [RFC2119].
 
 * Attribute certs vs. Authority certs
 * TLS syntax below
-* Note that the first 8 octets determine the length of remainder
+* Note that the first 8 bytes determine the length of remainder
+* This results in certificates of <300 bytes
 
 ~~~~~
 struct {
-  uint16 version;                         // 2 bytes
-  uint16 keyAlgorithm;                    // 2
-  uint16 sigAlgorithm;                    // 2
-  Attribute attributes<0..2^16-1>;        // 2 + NN * (2 + 2 + N)
-  uint64 notBefore;                       // 8
-  uint64 notAfter;                        // 8
-  opaque publicKey[keyAlgorithm.keySize];
-  opaque issuer[sigAlgorithm.issuerSize];
-  opaque signature[sigAlgorithm.sigSize];
-} AttributeCertificate
+  uint16 version;                         //     2 bytes
+  uint16 keyAlgorithm;                    //     2
+  uint16 sigAlgorithm;                    //     2
+  Attribute attributes<0..2^16-1>;        //     2 + NN * (2 + 2 + N)
+  uint64 notBefore;                       //     8
+  uint64 notAfter;                        //     8
+  opaque publicKey[keyAlgorithm.keySize]; //    32 .. 96
+  opaque issuer[sigAlgorithm.issuerSize]; //    32 .. 48
+  opaque signature[sigAlgorithm.sigSize]; //    64 .. 96
+} AttributeCertificate                    // = 152+  264+
 
 struct {
-  uint16 version;                         // 2 bytes
-  uint16 keyAlgorithm;                    // 2
-  uint16 sigAlgorithm;                    // 2
-  uint16 flags                            // 2
-  uint64 notBefore;                       // 8
-  uint64 notAfter;                        // 8
-  opaque publicKey[keyAlgorithm.keySize];
-  opaque issuer[sigAlgorithm.issuerSize];
-  opaque signature[sigAlgorithm.sigSize];
-} AuthorityCertificate
+  uint16 version;                         //     2 bytes
+  uint16 keyAlgorithm;                    //     2
+  uint16 sigAlgorithm;                    //     2
+  uint16 flags                            //     2
+  uint64 notBefore;                       //     8
+  uint64 notAfter;                        //     8
+  opaque publicKey[keyAlgorithm.keySize]; //    32 .. 96
+  opaque issuer[sigAlgorithm.issuerSize]; //    32 .. 48
+  opaque signature[sigAlgorithm.sigSize]; //    64 .. 96
+} AuthorityCertificate                    // = 152   264
 ~~~~~
 
 ## Parent / Child Relationships
