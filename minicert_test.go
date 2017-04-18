@@ -529,55 +529,6 @@ func TestVerifyChain(t *testing.T) {
 		auth4, auth5, auth6,
 	}
 
-	/*
-		// Verify all paths through (successful)
-		paths := [][]int{
-			{0, 1, 2},
-			{4, 3, 1, 2},
-			{4, 5},
-		}
-		for i, path := range paths {
-			err := verifyPath(ee, authorities, path)
-			if err != nil {
-				t.Fatalf("Path validation test #%d [%v]", i, err)
-			}
-		}
-
-		// Chain verify (no path)
-		err := verifyPath(ee, authorities, nil)
-		if err != nil {
-			t.Fatalf("Self validation test [%v]", err)
-		}
-
-		// Chain verify (EE key mismatch)
-		err = verifyPath(ee, authorities, []int{5})
-		if err == nil {
-			t.Fatalf("Chain verify should not have succeeded")
-		}
-
-		// Chain verify (EE signature validation failure)
-		ee.Signature = nil
-		err = verifyPath(ee, authorities, []int{0})
-		if err == nil {
-			t.Fatalf("Chain verify should not have succeeded")
-		}
-		ee.Sign(privA)
-
-		// Chain verify (CA key mismatch)
-		err = verifyPath(ee, authorities, []int{0, 5})
-		if err == nil {
-			t.Fatalf("Chain verify should not have succeeded")
-		}
-
-		// Chain verify (CA signature validation failure)
-		auth0.Signature = nil
-		err = verifyPath(ee, authorities, []int{0, 1})
-		if err == nil {
-			t.Fatalf("Chain verify should not have succeeded")
-		}
-		auth0.Sign(privB)
-	*/
-
 	// Verify with path building (successful)
 	trusted := [][]byte{pubD, pubF, pub1}
 	err := Verify(ee, authorities, trusted)

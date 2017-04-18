@@ -13,6 +13,8 @@ import (
 // TODO: Check validity times
 // TODO: Define flags to separate EE from CA issuers
 // TODO: Factor out path building into a cert pool object
+// TODO: Define an attribute type for DNS names
+// TODO: Define a chain format
 
 const (
 	MinEndEntityCertificateSize = 148

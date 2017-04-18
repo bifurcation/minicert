@@ -42,6 +42,18 @@ struct {
 } AuthorityCertificate                    // = 152   264
 ~~~~~
 
+Compare with the certificate chain served by `google.com` right now:
+
+```
+                Current              Minicert (ECDSA384)      Savings
+      ========================== ========================== ============
+      Total Crypto SANs Overhead Total Crypto SANs Overhead Total Crypto Other
+      ----- ------ ---- -------- ----- ------ ---- -------- ----- ------ -----
+EE     2078    512  938      628  1202    240  938       24   42%    53%   96%
+CA1    1012    512           500   264    240            24   74%    53%   95%
+CA2     897    384           513   264    240            24   71%    38%   95%
+```
+
 ## Parent / Child Relationships
 
 * Two certificates form a parent/child pair iff the following are true:
